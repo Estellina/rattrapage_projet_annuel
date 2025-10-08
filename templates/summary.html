@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Smart Assistant — Résumé</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container between">
+      <div class="brand">
+        <a href="/" class="brand-link"><span class="logo">🤖</span><span class="brand-text">Smart Assistant</span></a>
+      </div>
+      <a href="/" class="link subtle">← Retour</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero small">
+      <h1>Résumé généré</h1>
+      <p class="muted" id="meta"></p>
+    </section>
+
+    <section class="grid two-col">
+      <div class="card">
+        <h2>Résumé (FR)</h2>
+        <textarea id="sumFr" class="textarea tall"></textarea>
+      </div>
+      <div class="card">
+        <h2>Résumé (EN)</h2>
+        <textarea id="sumEn" class="textarea tall" readonly></textarea>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Améliorer le résumé</h3>
+      <form id="fbForm" class="form-grid">
+        <div class="form-row grid three-col">
+          <div>
+            <label class="label">Longueur</label>
+            <select name="length" class="input">
+              <option value="court">Court</option>
+              <option value="standard" selected>Standard</option>
+              <option value="long">Long</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Ton</label>
+            <select name="ton" class="input">
+              <option value="neutre" selected>Neutre</option>
+              <option value="formel">Formel</option>
+              <option value="amical">Amical</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Focus</label>
+            <select name="focus" class="input">
+              <option value="général" selected>Général</option>
+              <option value="données">Données</option>
+              <option value="méthode">Méthode</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row grid three-col">
+          <div>
+            <label class="label">Structure</label>
+            <select name="structure" class="input">
+              <option value="paragraphes" selected>Paragraphes</option>
+              <option value="puces">Puces</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Couverture</label>
+            <select name="couverture" class="input">
+              <option value="concis" selected>Concis</option>
+              <option value="exhaustif">Exhaustif</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Style</label>
+            <select name="style" class="input">
+              <option value="abstractive" selected>Abstractive</option>
+              <option value="extractive">Extractive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row grid two-col">
+          <div>
+            <label class="label">Chiffres</label>
+            <select name="chiffres" class="input">
+              <option value="garder" selected>Garder</option>
+              <option value="supprimer">Supprimer</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Citations</label>
+            <select name="citations" class="input">
+              <option value="inclure" selected>Inclure</option>
+              <option value="exclure">Exclure</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="improveBtn" class="btn secondary">
+            <span class="spinner" hidden></span>
+            <span class="btn-text">Améliorer le résumé</span>
+          </button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    // Récupère le résultat stocké
+    const raw = sessionStorage.getItem('sa_summary_result');
+    if (!raw) window.location.href = '/';
+    const { summary_fr, summary_en, model_used, quality } = JSON.parse(raw);
+
+    document.getElementById('sumFr').value = summary_fr || '';
+    document.getElementById('sumEn').value = summary_en || '';
+    document.getElementById('meta').textContent = `Modèle utilisé : ${model_used || '—'} · Qualité estimée : ${quality ?? '—'}`;
+
+    // Envoi du feedback
+    const fbForm = document.getElementById('fbForm');
+    const btn = document.getElementById('improveBtn');
+    const sp = btn.querySelector('.spinner'), bt = btn.querySelector('.btn-text');
+
+    fbForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(fbForm);
+      fd.append('source_fr', document.getElementById('sumFr').value || '');
+
+      btn.disabled = true; sp.hidden = false; bt.textContent = 'Amélioration…';
+      try {
+        const res = await fetch('/api/summary/feedback', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('Erreur ' + res.status);
+        const data = await res.json(); // { summary_fr }
+        document.getElementById('sumFr').value = data.summary_fr || document.getElementById('sumFr').value;
+      } catch (err) {
+        alert('Amélioration impossible : ' + err.message);
+      } finally {
+        btn.disabled = false; sp.hidden = true; bt.textContent = 'Améliorer le résumé';
+      }
+    });
+  </script>
+</body>
+</html>
