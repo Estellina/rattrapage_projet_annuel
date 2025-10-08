@@ -1,0 +1,22 @@
+# Normalize text files to LF in repo and on checkout (important for Linux hooks)
+* text=auto eol=lf
+
+# Force LF for scripts & config
+*.sh text eol=lf
+Procfile text eol=lf
+.platform/**/*.sh text eol=lf
+.platform/**/*.conf text eol=lf
+
+# Source files
+*.py text eol=lf
+templates/*.html text eol=lf
+static/*.css text eol=lf
+static/*.js text eol=lf
+
+# Keep binary files untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
