@@ -311,73 +311,47 @@ class FlanT5QuestionGenerator:
     def __init__(self, model, tok, qa_pipeline=None, task_prefix="question: "):
         self.model = model
         self.tok = tok
-        self.qa = qa_pipeline
+        self.qa  = qa_pipeline
         self.task_prefix = task_prefix
 
-    # --------- Génération de questions à partir d'un texte (EN) ----------
-
-    # Remplacer TOUT le body de FlanT5QuestionGenerator.generate par ceci
     @torch.no_grad()
     def generate(
-            self,
-            text_en: str,
-            *,
-            num_questions: int = 5,
-            per_span_ret: int = 2,
-            max_new_tokens: int = 64,
-            min_words_per_sentence: int = 6,
-            diversity: float = 0.5,
-            use_qa_filter: bool = True
+        self,
+        text_en: str,
+        *,
+        num_questions: int = 5,
+        per_span_ret: int = 2,            # conservé pour compat mais ignoré
+        max_new_tokens: int = 64,         # conservé pour compat; mappé via 'length' si tu veux
+        min_words_per_sentence: int = 6,  # conservé pour compat; non utilisé ici
+        diversity: float = 0.5,
+        use_qa_filter: bool = True,
+        difficulty: str = "intermediate", # ← ajoute ces deux params pour coller au notebook
+        style: str = "exam",
+        length: str = "medium",
+        force_in_context: bool = True,
     ) -> List[str]:
-        num_beams = _env_int("QG_GEN_NUM_BEAMS", 4)
-        no_repeat = _env_int("QG_GEN_NO_REPEAT_NGRAM_SIZE", 4)
-        rep_pen = _env_float("QG_GEN_REPETITION_PENALTY", 1.15)
-        do_sample = _env_bool("QG_GEN_DO_SAMPLE", False)
-        length_pen = _env_float("QG_GEN_LENGTH_PENALTY", 0.9)
+        """
+        Wrapper fin : délègue à generate_from_spans pour garantir
+        un comportement identique à la pipeline et au notebook.
+        """
+        passages = [text_en] if text_en else [""]
 
-        spans = [text_en]  # ici, on génère sur la portion passée (côté pipeline on split déjà)
-        device = getattr(self.model, "device", torch.device("cpu"))
-        all_q: List[str] = []
+        # Si tu veux absolument utiliser max_new_tokens ici,
+        # tu peux surcharger 'length' -> ex. mapper dynamiquement :
+        # length_map = {48: "short", 64: "medium", 96: "long"}
+        # length = length_map.get(max_new_tokens, length)
 
-        for sp in spans:
-            prompt = (
-                    f"{self.task_prefix}".strip()
-                    + (
-                        " Read the text and write one open-ended, content-specific question that refers to the key concepts.\n"
-                        f"Text:\n{sp}\n"
-                        "Question:"
-                    )
-            ).strip()
+        return self.generate_from_spans(
+            passages_en=passages,
+            num_questions=num_questions,
+            difficulty=difficulty,
+            style=style,
+            length=length,
+            diversity=diversity,            # ← important : pilotage du décodage
+            force_in_context=force_in_context,
+            use_qa_filter=use_qa_filter,
+        )
 
-            inputs = self.tok([prompt], return_tensors="pt", truncation=True).to(device)
-            want_force = _force_words_allowed(self.model)
-            force_ids = force_words_ids_for_span(sp, self.tok, max_terms=2) if want_force else None
-
-            kwargs = dict(
-                num_beams=num_beams,
-                num_return_sequences=per_span_ret,
-                max_new_tokens=max_new_tokens,
-                no_repeat_ngram_size=no_repeat,
-                length_penalty=length_pen,
-                early_stopping=True,
-                repetition_penalty=rep_pen,
-                do_sample=do_sample,
-            )
-
-            try:
-                gen = self.model.generate(**inputs, force_words_ids=force_ids, **kwargs)
-            except Exception:
-                # Fallback sans contraintes (évite le mode constrained-beam-search)
-                gen = self.model.generate(**inputs, force_words_ids=None, **kwargs)
-
-            outs = self.tok.batch_decode(gen, skip_special_tokens=True)
-            outs = postprocess_questions(outs)
-            if use_qa_filter:
-                outs = [q for q in outs if qa_supported_long(sp, q, self.qa, min_score=5.0, chunk_chars=1200)]
-            all_q.extend(outs)
-
-        final = postprocess_questions(all_q)
-        return final[:num_questions]
 
     @torch.no_grad()
     def generate_from_spans(
@@ -395,24 +369,19 @@ class FlanT5QuestionGenerator:
         import os, re, torch
         N = max(1, int(num_questions))
 
-        # Longueur cible
+        # Longueur cible (sortie)
         max_new = {"short": 48, "medium": 64, "long": 96}.get(length, 64)
 
         # Décodage piloté par la diversité
         if diversity <= 0.10:
-            # stable
-            do_sample = False
-            num_beams = 4
-            sample_kwargs = {}
+            gen_common = dict(do_sample=False, num_beams=4)
         else:
-            # varié
-            do_sample = True
-            num_beams = 1
-            top_p = min(0.98, 0.80 + diversity * 0.18)  # 0.80..0.98
-            temperature = min(1.30, 0.70 + diversity * 0.60)  # 0.70..1.30
-            top_k = int(20 + diversity * 40)  # 20..60
-            sample_kwargs = dict(do_sample=True, top_p=top_p, top_k=top_k, temperature=temperature)
+            top_p = min(0.98, 0.80 + diversity * 0.18)
+            temperature = min(1.30, 0.70 + diversity * 0.60)
+            top_k = int(20 + diversity * 40)
+            gen_common = dict(do_sample=True, num_beams=1, top_p=top_p, top_k=top_k, temperature=temperature)
 
+        # Tokens spéciaux (T5-safe)
         pad_id = getattr(self.tok, "pad_token_id", None) or getattr(self.tok, "eos_token_id", None) or 1
         eos_id = getattr(self.tok, "eos_token_id", None) or pad_id
 
@@ -420,9 +389,15 @@ class FlanT5QuestionGenerator:
         if not passages_en:
             passages_en = [""]
 
+        # Cap d'encodage "safe"
+        enc_max = min(
+            512,
+            int(getattr(self.tok, "model_max_length", 512)),
+            int(os.getenv("QG_ENCODER_MAXLEN", "512"))
+        )
+
         for i in range(N):
-            # Reseed global RNG si sampling (évite les sorties figées)
-            if do_sample:
+            if gen_common.get("do_sample", False):
                 seed = int.from_bytes(os.urandom(8), "big")
                 torch.manual_seed(seed)
                 if torch.cuda.is_available():
@@ -435,7 +410,7 @@ class FlanT5QuestionGenerator:
                 f"{self.task_prefix}{prompt}".strip(),
                 return_tensors="pt",
                 truncation=True,
-                max_length=768,
+                max_length=enc_max,
             ).to(self.model.device)
 
             gen = self.model.generate(
@@ -443,22 +418,19 @@ class FlanT5QuestionGenerator:
                 max_new_tokens=max_new,
                 min_new_tokens=8,
                 num_return_sequences=1,  # strict-N
-                num_beams=num_beams,
-                do_sample=do_sample,
                 no_repeat_ngram_size=4,
                 repetition_penalty=1.12,
                 pad_token_id=pad_id,
                 eos_token_id=eos_id,
-                **sample_kwargs
+                **gen_common,  # un seul paquet d’options
             )
-            text = self.tok.decode(gen[0], skip_special_tokens=True).strip()
-            outs.append(text)
+            outs.append(self.tok.decode(gen[0], skip_special_tokens=True).strip())
 
-        # Nettoyage / dédup / strict-N
+        # Nettoyage + dédup + strict-N (normalisation "douce")
         qs = postprocess_questions(outs)
         uniq, seen = [], set()
         for q in qs:
-            k = re.sub(r"\W+", "", q.lower())
+            k = q.strip().lower()
             if k in seen:
                 continue
             seen.add(k);

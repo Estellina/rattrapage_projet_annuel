@@ -538,46 +538,7 @@ def build_document_spans(text_en: str, n_spans: int = 8, window: int = 1, max_sp
     return spans
 
 
-def regenerate_questions_with_feedback(
-    *,
-    full_text_en: str,
-    payload: Optional[Dict[str, Any]] = None,
-    default_num_questions: int = 5
-) -> List[str]:
-    payload = payload or {}
-    _ensure_qg_ready(); assert _QG is not None
 
-    # mapping robuste
-    diff = (payload.get("difficulty") or "intermediate").strip().lower()
-    if diff in {"facile","easy","beginner"}: difficulty = "easy"
-    elif diff in {"intermediaire","intermédiaire","moyen","medium","intermediate"}: difficulty = "intermediate"
-    elif diff in {"difficile","advanced","avancé","avance"}: difficulty = "advanced"
-    else: difficulty = "intermediate"
-
-    style = (payload.get("style") or "exam").strip().lower()
-    if style not in {"academic","exam","concise","elaborated"}: style = "exam"
-
-    length = (payload.get("length") or "medium").strip().lower()
-    if length not in {"short","medium","long"}: length = "medium"
-
-    raw_div = str(payload.get("diversity", "0.5")).replace(",", ".")
-    try: diversity = float(raw_div)
-    except Exception: diversity = 0.5
-    diversity = max(0.0, min(1.0, diversity))
-
-    want_n = max(1, min(10, int(payload.get("n", default_num_questions) or default_num_questions)))
-
-    spans = select_top_spans(full_text_en, k=max(1, 8), diversity=diversity) or [full_text_en]
-
-    qs_en = _QG.generate_from_spans(
-        passages_en=spans,
-        num_questions=want_n,
-        difficulty=difficulty,
-        style=style,
-        length=length,
-        use_qa_filter=_env_bool("ENABLE_QA_FILTER", False),
-    )
-    return postprocess_questions(qs_en)[:want_n]
 
 
 
@@ -654,6 +615,7 @@ def run_questions_feedback_pipeline(pdf_bytes: bytes, payload: Optional[Dict[str
     else:
         if action == "reject":
             assert reason is not None, "Reject requires a reason"
+
         newc = apply_feedback_rules(base, reason, fields) if reason else base
         regenerated = _QG.generate_from_spans(
             passages_en=newc.passages_en,
@@ -674,5 +636,5 @@ def run_questions_feedback_pipeline(pdf_bytes: bytes, payload: Optional[Dict[str
              reason, newc.num_questions, newc.difficulty, newc.style, newc.length, newc.diversity,
              len(newc.passages_en))
 
-    return QuestionsOutput(questions_fr=qs_fr, questions_en=qs_en, model_used=(_QG_SOURCE or "unknown"), internal_spans=newc.passages_en, doc_id=doc_id)
+    return QuestionsOutput(questions_fr=qs_fr, questions_en=qs_en, model_used=(_QG_SOURCE or "unknown"), internal_spans=newc.passages_en)
 
