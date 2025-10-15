@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Smart Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg">
+  <header class="site-header">
+    <div class="container between">
+      <div class="brand">
+        <a href="/" class="brand-link"><span class="logo">🤖</span><span class="brand-text">Smart Assistant</span></a>
+      </div>
+      <!-- lien vers la page résumé si déjà dispo, sinon caché (géré en JS) -->
+      <a href="/summary" id="resumeLink" class="back-link" style="display:none;">Reprendre le dernier résumé →</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card hero">
+      <h1>Transformez vos PDF en <span class="accent">résumés intelligents</span> & <span class="accent">quiz</span></h1>
+      <p class="muted">Téléversez un PDF, choisissez la fonctionnalité, et lancez l’analyse.</p>
+
+      <form id="uploadForm" class="form">
+        <div class="field">
+          <label>Déposez votre fichier ici (PDF)</label>
+          <input type="file" id="file" name="file" accept="application/pdf,.pdf" required />
+        </div>
+
+        <div class="field">
+          <label>Fonctionnalité</label>
+          <select id="mode" name="mode">
+            <option value="summary" selected>Résumé</option>
+            <option value="questions">Questions</option>
+          </select>
+        </div>
+
+        <button id="submitBtn" class="btn" type="submit">Analyser</button>
+        <p id="status" class="status"></p>
+        <p class="tiny muted">Le PDF est traité pour générer le résultat. Les chunks pertinents sont mis en cache en session pour la phase de feedback.</p>
+      </form>
+    </section>
+  </main>
+
+  <script>
+  (function() {
+    // Montrer "Reprendre le dernier résumé" si un résultat existe déjà
+    try {
+      const saved = sessionStorage.getItem('sa_summary_result');
+      if (saved) {
+        const a = document.getElementById('resumeLink');
+        if (a) a.style.display = '';
+      }
+    } catch (_) {}
+
+    const form = document.getElementById('uploadForm');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = 'Analyse en cours…';
+      submitBtn.disabled = true;
+
+      const f = document.getElementById('file').files[0];
+      if (!f) {
+        statusEl.textContent = 'Veuillez sélectionner un PDF.';
+        submitBtn.disabled = false;
+        return;
+      }
+
+      const mode = document.getElementById('mode').value;
+      const fd = new FormData(); fd.append('file', f);
+
+      try {
+        const endpoint = mode === 'summary' ? '/api/summary' : '/api/questions';
+        const r = await fetch(endpoint, { method: 'POST', body: fd });
+
+        if (!r.ok) {
+          // Essayer de lire un message d’erreur JSON {detail: "..."}
+          let msg = 'Erreur ' + r.status;
+          try {
+            const err = await r.json();
+            if (err && err.detail) msg = err.detail;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+
+        const data = await r.json();
+
+        if (mode === 'summary') {
+          // stocke le résultat pour /summary (où les feedbacks seront appliqués)
+          sessionStorage.setItem('sa_summary_result', JSON.stringify(data));
+          window.location.href = '/summary';
+        } else {
+            const payload = {
+                        questions_fr: data.questions_fr || [],
+                        questions_en: data.questions_en || [],
+                        model_used:   data.model_used   || 'unknown',
+                        doc_id:       data.doc_id       || ''           // ← optionnel
+                      };
+                      sessionStorage.setItem('sa_qg_result', JSON.stringify(payload));
+                      window.location.href = '/questions';
+        }
+      } catch (err) {
+        statusEl.textContent = 'Erreur pendant l’analyse : ' + (err && err.message ? err.message : err);
+        submitBtn.disabled = false;
+        return;
+      }
+
+      // en cas de succès, on ne réactive pas le bouton car on redirige
+    });
+  })();
+  </script>
+</body>
+</html>

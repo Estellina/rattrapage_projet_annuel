@@ -6,13 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body>
+<body class="bg">
   <header class="site-header">
     <div class="container between">
       <div class="brand">
         <a href="/" class="brand-link"><span class="logo">🤖</span><span class="brand-text">Smart Assistant</span></a>
       </div>
-      <a href="/" class="link subtle">← Retour</a>
+      <a href="/" class="back-link">← Retour</a>
     </div>
   </header>
 
@@ -36,19 +36,23 @@
     <section class="card">
       <h3>Améliorer le résumé</h3>
       <form id="fbForm" class="form-grid">
+        <!-- NOTE: plus de mode=chunks, plus d'upload PDF. On passe uniquement doc_id. -->
+
         <div class="form-row grid three-col">
           <div>
             <label class="label">Longueur</label>
             <select name="length" class="input">
+              <option value="default" selected>Défaut</option>
               <option value="court">Court</option>
-              <option value="standard" selected>Standard</option>
+              <option value="standard">Standard</option>
               <option value="long">Long</option>
             </select>
           </div>
           <div>
             <label class="label">Ton</label>
             <select name="ton" class="input">
-              <option value="neutre" selected>Neutre</option>
+              <option value="default" selected>Défaut</option>
+              <option value="neutre">Neutre</option>
               <option value="formel">Formel</option>
               <option value="amical">Amical</option>
             </select>
@@ -56,34 +60,34 @@
           <div>
             <label class="label">Focus</label>
             <select name="focus" class="input">
-              <option value="général" selected>Général</option>
+              <option value="default" selected>Défaut</option>
+              <option value="général">Général</option>
               <option value="données">Données</option>
-              <option value="méthode">Méthode</option>
+              <option value="méthodes">Méthodes</option>
             </select>
           </div>
         </div>
 
         <div class="form-row grid three-col">
           <div>
-            <label class="label">Structure</label>
-            <select name="structure" class="input">
-              <option value="paragraphes" selected>Paragraphes</option>
-              <option value="puces">Puces</option>
-            </select>
-          </div>
-          <div>
             <label class="label">Couverture</label>
             <select name="couverture" class="input">
-              <option value="concis" selected>Concis</option>
+              <option value="default" selected>Défaut</option>
+              <option value="concis">Concis</option>
               <option value="exhaustif">Exhaustif</option>
             </select>
           </div>
           <div>
             <label class="label">Style</label>
             <select name="style" class="input">
-              <option value="abstractive" selected>Abstractive</option>
+              <option value="default" selected>Défaut</option>
+              <option value="abstractive">Abstractive</option>
               <option value="extractive">Extractive</option>
             </select>
+          </div>
+          <div>
+            <label class="label">Top-K (feedback)</label>
+            <input type="number" name="topk_k" min="1" max="5" value="2" class="input" />
           </div>
         </div>
 
@@ -91,21 +95,23 @@
           <div>
             <label class="label">Chiffres</label>
             <select name="chiffres" class="input">
-              <option value="garder" selected>Garder</option>
+              <option value="default" selected>Défaut</option>
+              <option value="garder">Garder</option>
               <option value="supprimer">Supprimer</option>
             </select>
           </div>
           <div>
             <label class="label">Citations</label>
             <select name="citations" class="input">
-              <option value="inclure" selected>Inclure</option>
+              <option value="default" selected>Défaut</option>
+              <option value="inclure">Inclure</option>
               <option value="exclure">Exclure</option>
             </select>
           </div>
         </div>
 
         <div class="actions">
-          <button id="improveBtn" class="btn secondary">
+          <button id="improveBtn" class="btn secondary" type="submit">
             <span class="spinner" hidden></span>
             <span class="btn-text">Améliorer le résumé</span>
           </button>
@@ -115,31 +121,58 @@
   </main>
 
   <script>
-    // Récupère le résultat stocké
+    // Récupération du résultat précédent (fourni par /api/summary et stocké côté client)
     const raw = sessionStorage.getItem('sa_summary_result');
-    if (!raw) window.location.href = '/';
-    const { summary_fr, summary_en, model_used, quality } = JSON.parse(raw);
+    if (!raw) {
+      window.location.href = '/';
+    }
 
-    document.getElementById('sumFr').value = summary_fr || '';
-    document.getElementById('sumEn').value = summary_en || '';
-    document.getElementById('meta').textContent = `Modèle utilisé : ${model_used || '—'} · Qualité estimée : ${quality ?? '—'}`;
+    let data = {};
+    try { data = JSON.parse(raw); } catch (e) { data = {}; }
 
-    // Envoi du feedback
+    const summary_fr = data.summary_fr || '';
+    const summary_en = data.summary_en || '';
+    const model_used = data.model_used || '-';
+    const quality    = (data.quality ?? '-');
+    const doc_id     = data.doc_id || '';
+
+    document.getElementById('sumFr').value = summary_fr;
+    document.getElementById('sumEn').value = summary_en;
+    document.getElementById('meta').textContent =
+      'Modèle utilisé : ' + (model_used || '-') + ' · Qualité estimée : ' + quality;
+
     const fbForm = document.getElementById('fbForm');
     const btn = document.getElementById('improveBtn');
-    const sp = btn.querySelector('.spinner'), bt = btn.querySelector('.btn-text');
+    const sp = btn.querySelector('.spinner');
+    const bt = btn.querySelector('.btn-text');
 
     fbForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+
       const fd = new FormData(fbForm);
+
+      // On envoie toujours la version éditée du résumé FR (utile pour le contexte UI)
       fd.append('source_fr', document.getElementById('sumFr').value || '');
+
+      // Version doc_id only : pas d'upload PDF ici
+      if (doc_id) {
+        fd.append('doc_id', doc_id);
+      } else {
+        alert('doc_id manquant : relance la première étape de résumé pour initialiser le cache PDF.');
+        return;
+      }
 
       btn.disabled = true; sp.hidden = false; bt.textContent = 'Amélioration…';
       try {
         const res = await fetch('/api/summary/feedback', { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Erreur ' + res.status);
-        const data = await res.json(); // { summary_fr }
-        document.getElementById('sumFr').value = data.summary_fr || document.getElementById('sumFr').value;
+        const out = await res.json();
+        if (out && out.summary_fr) {
+          document.getElementById('sumFr').value = out.summary_fr;
+        }
+        if (out && out.summary_en) {
+          document.getElementById('sumEn').value = out.summary_en;  // <-- AJOUT
+        }
       } catch (err) {
         alert('Amélioration impossible : ' + err.message);
       } finally {

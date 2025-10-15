@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Smart Assistant — Questions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg">
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container between">
+      <div class="brand">
+        <a href="/" class="brand-link">
+          <span class="logo">🤖</span><span class="brand-text">Smart Assistant</span>
+        </a>
+      </div>
+      <a href="/" class="link subtle">← Nouveau PDF</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Meta -->
+    <section class="hero small">
+      <h1>Questions ouvertes générées</h1>
+      <p class="muted" id="meta"></p>
+    </section>
+
+    <!-- Liste des questions -->
+    <section class="card">
+      <div id="qList" class="q-list"></div>
+    </section>
+
+    <!-- Feedback via "reasons" -->
+    <section class="card">
+      <h3>Régénérer avec feedback</h3>
+
+      <!-- Select reason -->
+      <form id="qFbForm" class="form-grid">
+        <div class="form-row grid two-col">
+          <div>
+            <label class="label">Raison</label>
+            <select id="reason" class="input" required>
+              <option value="too-trivial">Trop trivial</option>
+              <option value="too-hard">Trop difficile</option>
+              <option value="unclear">Peu clair</option>
+              <option value="off-topic">Hors sujet</option>
+              <option value="unanswerable">Sans réponse possible</option>
+              <option value="wrong-section">Mauvaise section</option>
+              <option value="wrong-style">Mauvais style</option>
+              <option value="duplicate">Doublons</option>
+              <option value="too-long">Trop long</option>
+              <option value="too-short">Trop court</option>
+              <option value="needs-diversity">Manque de diversité</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="label">Nombre (optionnel)</label>
+            <input id="n_override" type="number" min="1" max="10" class="input" placeholder="ex. 7" />
+            <p class="tiny muted">Laisse vide pour conserver le nombre actuel.</p>
+          </div>
+        </div>
+
+        <!-- Overrides contextuels -->
+        <div id="styleRow" class="form-row" hidden>
+          <label class="label">Style cible (si « Mauvais style »)</label>
+          <select id="style_target" class="input">
+            <option value="academic">Académique</option>
+            <option value="exam">Examen</option>
+            <option value="concise">Concise</option>
+            <option value="elaborated">Développée</option>
+          </select>
+        </div>
+
+        <div id="sectionRow" class="form-row" hidden>
+          <label class="label">Extrait / section à privilégier (optionnel)</label>
+          <textarea id="section_text" class="textarea" rows="3"
+            placeholder="Collez ici le passage que vous souhaitez cibler."></textarea>
+          <p class="tiny muted">Utilisé pour « Hors sujet », « Sans réponse possible » ou « Mauvaise section ».</p>
+        </div>
+
+        <div class="actions">
+          <button id="qImproveBtn" class="btn secondary" type="submit">
+            <span class="spinner" hidden></span>
+            <span class="btn-text">Régénérer</span>
+          </button>
+        </div>
+      </form>
+
+      <p class="tiny muted">
+        Astuce : le système réutilise automatiquement les <code>spans</code> du premier passage via un <code>doc_id</code>.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    // ---- Lecture résultat depuis la session
+    const raw = sessionStorage.getItem('sa_qg_result');
+    if (!raw) { window.location.href = '/'; }
+    let data = {};
+    try { data = JSON.parse(raw); } catch (e) { data = {}; }
+
+    const fr = Array.isArray(data.questions_fr) ? data.questions_fr : [];
+    const en = Array.isArray(data.questions_en) ? data.questions_en : [];
+    const modelUsed = data.model_used || '-';
+    const docId = data.doc_id || '';
+
+    // Meta
+    const meta = document.getElementById('meta');
+    meta.textContent = 'Modèle utilisé : ' + modelUsed + ' · ' + (fr.length || en.length) + ' question(s)';
+
+    // Rendu liste
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    const list = document.getElementById('qList');
+    if (!fr.length && !en.length) {
+      list.innerHTML = '<p class="muted">Aucune question générée pour le moment.</p>';
+    } else {
+      const items = (fr.length ? fr : en);
+      list.innerHTML = items.map((q, i) => {
+        const frQ = fr[i] || '';
+        const enQ = en[i] || '';
+        const title = frQ ? frQ : enQ;
+        const enPart = enQ ? '<div class="muted tiny trans">EN: ' + escapeHtml(enQ) + '</div>' : '';
+        return (
+          '<div class="qa">' +
+            '<div class="q">Q' + (i + 1) + '. ' + escapeHtml(title) + '</div>' +
+            '<textarea class="textarea" placeholder="Votre réponse ici..."></textarea>' +
+            enPart +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    // ---- Feedback form (reasons → règles)
+    const fbForm = document.getElementById('qFbForm');
+    const btn    = document.getElementById('qImproveBtn');
+    const sp     = btn.querySelector('.spinner');
+    const bt     = btn.querySelector('.btn-text');
+
+    const selReason   = document.getElementById('reason');
+    const styleRow    = document.getElementById('styleRow');
+    const styleTarget = document.getElementById('style_target');
+    const sectionRow  = document.getElementById('sectionRow');
+    const sectionText = document.getElementById('section_text');
+    const nOverride   = document.getElementById('n_override');
+
+    // Affiche/masque overrides contextuels
+    function updateContext() {
+      const r = selReason.value;
+      styleRow.hidden   = (r !== 'wrong-style');
+      sectionRow.hidden = !(r === 'off-topic' || r === 'unanswerable' || r === 'wrong-section');
+    }
+    selReason.addEventListener('change', updateContext);
+    updateContext();
+
+    // Anti double-submit
+    let fbBusy = false;
+
+    fbForm.addEventListener('submit', function(e){
+      e.preventDefault();
+      if (fbBusy) return;
+      if (!docId) { alert("doc_id manquant. Relancez la génération initiale."); return; }
+
+      // Compose payload (reason obligatoire; fields optionnels)
+      const reason = selReason.value;
+      const fields = {};
+      const n = parseInt(nOverride.value, 10);
+      if (!Number.isNaN(n)) fields.num_questions = n;
+
+      if (reason === 'wrong-style') {
+        fields.style = styleTarget.value;
+      }
+      if (reason === 'off-topic' || reason === 'unanswerable' || reason === 'wrong-section') {
+        const txt = (sectionText.value || '').trim();
+        if (txt) fields.passages_en = [txt]; // le backend accepte une liste de spans
+      }
+
+      const payload = {
+        doc_id: docId,
+        action: 'reject',
+        reason: reason,
+        fields: fields
+      };
+
+      const send = new FormData();
+      send.append('payload', JSON.stringify(payload));
+
+      fbBusy = true; btn.disabled = true; sp.hidden = false; bt.textContent = 'Régénération...';
+      fetch('/api/questions/feedback', { method: 'POST', body: send })
+        .then(res => { if(!res.ok) throw new Error('Erreur ' + res.status); return res.json(); })
+        .then(out => {
+          // Mémorise le nouveau résultat + doc_id (inchangé)
+          const newFr = Array.isArray(out.questions_fr) ? out.questions_fr : [];
+          const newEn = Array.isArray(out.questions_en) ? out.questions_en : [];
+          sessionStorage.setItem('sa_qg_result', JSON.stringify({
+            model_used: out.model_used || modelUsed,
+            questions_fr: newFr,
+            questions_en: newEn,
+            doc_id: out.doc_id || docId
+          }));
+          location.reload();
+        })
+        .catch(err => alert('Régénération impossible : ' + (err && err.message ? err.message : err)))
+        .finally(() => { fbBusy = false; btn.disabled = false; sp.hidden = true; bt.textContent = 'Régénérer'; });
+    });
+  </script>
+</body>
+</html>
