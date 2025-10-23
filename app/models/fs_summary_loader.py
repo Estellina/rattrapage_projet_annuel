@@ -1,45 +1,14 @@
-"""
-Loader and inference routines for a custom hierarchical summarization model.
-
-This module exposes two top‑level functions:
-
-    * ``load_summary_model(model_path, tokenizer_dir)`` – load a Byte‑Level BPE tokenizer
-      from ``tokenizer_dir`` and a HIBERT‑like model from ``model_path``.  After
-      calling this function the global variables ``_model`` and ``_tokenizer``
-      point to the loaded objects and can be used for inference.
-
-    * ``generate_summary(text_en)`` – given an English text, produce a concise
-      summary using the loaded model.  The input is automatically split into
-      sentences, tokenised, packed into the hierarchical tensor format and
-      decoded with a greedy decoder biased towards the vocabulary of the
-      source.  See the notebook ``scientific_training (3).ipynb`` for the
-      underlying architecture and generation strategy.
-
-When integrating your own from‑scratch summariser you should replace or
-extend the implementation below.  The current code mirrors the logic
-found in the provided notebook: it re‑implements the ``HIBERTLike`` class,
-loads a ByteLevelBPETokenizer from disk and performs grounded greedy
-decoding.  If your checkpoint contains different hyper‑parameters you may
-need to adjust the arguments passed to ``HIBERTLike`` to match those used
-during training.
-"""
-
 from __future__ import annotations
 
-import os
 import math
 import re
 from pathlib import Path
 from typing import Optional, Tuple, Set
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 
 try:
-    # The tokenizers library provides a fast ByteLevelBPETokenizer used during
-    # training.  If it is not installed the loader will fail.  Install via
-    # ``pip install tokenizers``.
     from tokenizers.implementations import ByteLevelBPETokenizer
 except ImportError as exc:  # pragma: no cover – handled at runtime
     ByteLevelBPETokenizer = None
@@ -58,7 +27,6 @@ class PositionalEncoding(nn.Module):
     embeddings.  The implementation is identical to that used in the
     reference notebook.
     """
-
     def __init__(self, d_model: int, max_len: int = 4096, dropout: float = 0.1) -> None:
         super().__init__()
         self.dropout = nn.Dropout(dropout)
@@ -201,8 +169,7 @@ class HIBERTLike(nn.Module):
 #  Tokeniser and packing helpers
 ###############################################################################
 
-# Global variables holding the loaded model and tokenizer.  They are set when
-# ``load_summary_model`` is called and used by ``generate_summary``.
+# Global variables holding the loaded model and tokenizer.
 _model: Optional[HIBERTLike] = None
 _tokenizer: Optional[ByteLevelBPETokenizer] = None
 

@@ -3,14 +3,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-
-# app/config.py (ajouts en tête du fichier)
 import os
 from pathlib import Path
 
 # 1) Charger .env de façon robuste (racine + cwd)
 try:
-    from dotenv import load_dotenv  # pip install python-dotenv
+    from dotenv import load_dotenv
     ROOT = Path(__file__).resolve().parents[1]
     for cand in (ROOT/".env", ROOT/".env.local", Path.cwd()/".env"):
         if cand.exists():
@@ -32,13 +30,12 @@ if _pt:
     _pt = _to_dir(_pt)
     os.environ.setdefault("PT_SUMMARY_S3_PREFIX", _pt)
 
-# Alias cache : fournir SA_CACHE_DIR si vous utilisez CACHE_DIR
+
 _cache = os.getenv("SA_CACHE_DIR") or os.getenv("PT_SUMMARY_CACHE_DIR") or os.getenv("CACHE_DIR")
 if _cache:
     os.environ.setdefault("SA_CACHE_DIR", _cache)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Caches/vars HF
 _HF_CACHE = os.getenv("HF_HOME") or os.getenv("HUGGINGFACE_HUB_CACHE") or "/tmp/transformers_cache"
 os.environ["HF_HOME"] = _HF_CACHE
@@ -53,7 +50,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-# ──────────────────────────────────────────────────────────────────────────────
+
 @dataclass
 class Config:
     # App
@@ -145,7 +142,7 @@ class Config:
     # Tronquage dur en entrée QG
     QG_MAX_CHARS: int = int(os.getenv("QG_MAX_CHARS", "20000"))
 
-    # Filtre QA (si ton loader le supporte)
+    # Filtre QA
     ENABLE_QA_FILTER: bool = os.getenv("ENABLE_QA_FILTER", "false").lower() in {"1", "true", "yes"}
 
 

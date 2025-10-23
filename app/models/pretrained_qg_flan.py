@@ -1,8 +1,4 @@
 # app/models/pretrained_qg_flan.py
-# ---------------------------------------------------------------------
-# Helpers + classe de génération de questions pour modèles T5/FLAN.
-# Le chargement (model/tokenizer/qa) est effectué ailleurs (pipeline).
-# ---------------------------------------------------------------------
 
 from __future__ import annotations
 import os
@@ -179,15 +175,6 @@ def postprocess_questions(cands: Iterable[str]) -> list[str]:
             out.append(q)
     return out
 
-
-
-
-
-
-
-
-
-
 def qa_supported_long(
     context: str,
     question: str,
@@ -249,7 +236,6 @@ def _env_bool(name: str, default: bool) -> bool:
 
 # --------------------- Classe principale de génération ---------------------
 
-# Ajoute ce helper dans le fichier (par ex. sous les _env_* helpers)
 def _force_words_allowed(model) -> bool:
     """
     On n'utilise force_words_ids que si:
@@ -320,12 +306,9 @@ class FlanT5QuestionGenerator:
         text_en: str,
         *,
         num_questions: int = 5,
-        per_span_ret: int = 2,            # conservé pour compat mais ignoré
-        max_new_tokens: int = 64,         # conservé pour compat; mappé via 'length' si tu veux
-        min_words_per_sentence: int = 6,  # conservé pour compat; non utilisé ici
         diversity: float = 0.5,
         use_qa_filter: bool = True,
-        difficulty: str = "intermediate", # ← ajoute ces deux params pour coller au notebook
+        difficulty: str = "intermediate",
         style: str = "exam",
         length: str = "medium",
         force_in_context: bool = True,
@@ -336,10 +319,6 @@ class FlanT5QuestionGenerator:
         """
         passages = [text_en] if text_en else [""]
 
-        # Si tu veux absolument utiliser max_new_tokens ici,
-        # tu peux surcharger 'length' -> ex. mapper dynamiquement :
-        # length_map = {48: "short", 64: "medium", 96: "long"}
-        # length = length_map.get(max_new_tokens, length)
 
         return self.generate_from_spans(
             passages_en=passages,

@@ -1,52 +1,19 @@
-"""
-Loader and inference routines for a custom question generation (QG) model.
-
-This module provides a minimal implementation for loading a transformer‐based
-question generator trained from scratch and performing biased beam search
-decoding.  The implementation is derived from the provided notebook
-``questions_models_custom.ipynb``.  It defines a ``QGTransformer`` class
-matching the training architecture, loads a tokeniser from disk, and
-implements a beam search with keyword biasing, reranking and de‑duplication.
-
-Functions exported:
-
-    * ``load_qg_model(model_path, tokenizer_dir)`` – load the QG model and
-      associated tokeniser.  After calling this, ``generate_questions`` can
-      be used to perform inference.
-
-    * ``generate_questions(text_en, n, difficulty, scope, section)`` –
-      generate ``n`` English questions from the provided text.  Difficulty,
-      scope and section parameters are currently ignored but retained for
-      API compatibility.
-
-If your own model differs substantially from this implementation (e.g. you
-use a different decoder or keyword biasing strategy), adapt the code
-accordingly.  The default logic will always attempt to produce at least
-``n`` questions, reusing text keywords to ensure relevance.
-"""
-
 from __future__ import annotations
 
 import math
-import os
 import re
 from pathlib import Path
 from typing import List, Tuple, Set, Optional
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 try:
-    # Tokenisers: use HuggingFace's tokenizers library if available.  We
-    # support both a JSON file (tokenizer.json) and the pair of vocab/merges
-    # used by ByteLevelBPETokenizer.  The Tokenizer class is used for QG.
     from tokenizers import Tokenizer, decoders
     from tokenizers.implementations import ByteLevelBPETokenizer
-except ImportError as exc:  # pragma: no cover – handled at runtime
-    Tokenizer = None  # type: ignore
-    ByteLevelBPETokenizer = None  # type: ignore
-    decoders = None  # type: ignore
+except ImportError as exc:
+    Tokenizer = None
+    ByteLevelBPETokenizer = None
+    decoders = None
     raise
 
 
